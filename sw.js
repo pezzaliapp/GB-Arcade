@@ -1,4 +1,4 @@
-const CACHE = 'gb-arcade-v1';
+const CACHE = 'gb-arcade-v5';
 
 const ASSETS = [
   './',
@@ -7,7 +7,10 @@ const ASSETS = [
   './sw.js',
   './games/invaders.js',
   './games/snake.js',
-  './games/galattica.js'
+  './games/galattica.js',
+  './games/breakout.js',
+  './games/runner.js',
+  './games/tetris.js'
 ];
 
 self.addEventListener('install', (e) => {
@@ -34,7 +37,7 @@ self.addEventListener('fetch', (e) => {
   const accept = req.headers.get('accept') || '';
   const isHTML = req.mode === 'navigate' || accept.includes('text/html');
 
-  if (isHTML) {
+  if (isHTML){
     e.respondWith(
       fetch(req)
         .then(res => {
