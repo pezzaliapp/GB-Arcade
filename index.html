@@ -92,6 +92,7 @@
       color:#1c2b22; background: rgba(255,255,255,.35);
       border: 1px solid rgba(0,0,0,.12);
       border-radius: 12px; padding: 8px 10px;
+      white-space: normal;
     }
 
     /* mobile SEL/START bar */
@@ -161,7 +162,6 @@
       cursor:pointer; touch-action: manipulation;
     }
 
-    /* launcher grid */
     .cartgrid{
       display:grid;
       grid-template-columns: 1fr 1fr;
@@ -195,6 +195,7 @@
       .ab .smallrow{ display:none; }
       .mobilebar{ display:flex; }
       .hint{ font-size:11px; padding:7px 9px; }
+      .cartgrid{ grid-template-columns: 1fr 1fr; }
     }
   </style>
 </head>
@@ -229,9 +230,11 @@
 
           <div id="launcher" class="cartgrid" aria-label="Cartridges">
             <div class="cart" data-game="invaders">INVADERS<small>Space • shoot</small></div>
-            <div class="cart" data-game="snake">SNAKE<small>Classic • soon</small></div>
-            <div class="cart" data-game="galattica">GALATTICA<small>Wave • soon</small></div>
-            <div class="cart" data-game="soon">MORE<small>Coming soon</small></div>
+            <div class="cart" data-game="snake">SNAKE<small>Arcade • 20×20</small></div>
+            <div class="cart" data-game="galattica">GALATTICA<small>Dodge • shield</small></div>
+            <div class="cart" data-game="breakout">BREAKOUT<small>Paddle • bricks</small></div>
+            <div class="cart" data-game="runner">RUNNER<small>Endless • jump</small></div>
+            <div class="cart" data-game="tetris">TETRIS-LIKE<small>10×20 • lines</small></div>
           </div>
         </div>
       </div>
@@ -259,28 +262,30 @@
   </div>
 
 <script type="module">
-  // Register SW
+  const APP_VER = '2026-01-03-arcade-6'; // cambia per forzare bypass cache
+
+  // SW
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+    window.addEventListener('load', async () => {
+      try { await navigator.serviceWorker.register('./sw.js'); }
+      catch (e) { console.warn('SW register failed', e); }
+    });
   }
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
-
   const msgEl = document.getElementById('msg');
   const hudL = document.getElementById('hudLeft');
   const hudR = document.getElementById('hudRight');
   const launcher = document.getElementById('launcher');
-
   const gamePill = document.getElementById('gamePill');
   const modePill = document.getElementById('modePill');
 
-  // Input shared (tap-latch for Dpad; pressed flags for buttons)
+  // Input
   const input = {
     up:false, down:false, left:false, right:false,
     aPressed:false, bPressed:false, startPressed:false, selPressed:false
   };
-
   function clearPressed(){
     input.aPressed = input.bPressed = input.startPressed = input.selPressed = false;
   }
@@ -289,7 +294,6 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
-  // Robust press binding (avoid double events)
   function bindPress(elOrId, on){
     const el = (typeof elOrId === 'string') ? document.getElementById(elOrId) : elOrId;
     if (!el) return;
@@ -307,7 +311,7 @@
     el.addEventListener('touchend', (e)=>{ e.preventDefault(); run(); }, {passive:false});
   }
 
-  // D-pad (tap-latch)
+  // D-pad latch
   document.querySelectorAll('.dpad button[data-dir]').forEach(btn=>{
     const d = btn.dataset.dir;
     const set = () => {
@@ -321,17 +325,14 @@
     btn.addEventListener('touchend', (e)=>{ e.preventDefault(); set(); }, {passive:false});
   });
 
-  // Buttons
   bindPress('btnA', ()=>{ input.aPressed = true; });
   bindPress('btnB', ()=>{ input.bPressed = true; });
   bindPress('btnStart', ()=>{ input.startPressed = true; });
   bindPress('btnSel', ()=>{ input.selPressed = true; });
 
-  // Mobile mirrored keys
   bindPress('mStart', ()=> document.getElementById('btnStart').click());
   bindPress('mSel', ()=> document.getElementById('btnSel').click());
 
-  // Keyboard
   window.addEventListener('keydown', (e)=>{
     const k = e.key.toLowerCase();
     if (k==='arrowup') input.up=true;
@@ -352,15 +353,17 @@
     else if (k==='arrowright') input.right=false;
   }, {passive:true});
 
-  // ---- Cartridge registry (plugins)
-  const registry = {
-    invaders: () => import('./games/invaders.js'),
-    snake: () => import('./games/snake.js'),
-    galattica: () => import('./games/galattica.js')
+  // Paths + cache bust
+  const GAME_PATH = {
+    invaders: './games/invaders.js',
+    snake: './games/snake.js',
+    galattica: './games/galattica.js',
+    breakout: './games/breakout.js',
+    runner: './games/runner.js',
+    tetris: './games/tetris.js'
   };
 
   let game = null;
-  let gameId = null;
 
   function drawMenuScreen(){
     ctx.clearRect(0,0,256,256);
@@ -375,55 +378,59 @@
     ctx.fillText('Choose a cartridge', 128, 140);
   }
 
-  function showMenu(){
+  function showMenu(text){
     launcher.classList.remove('hidden');
     gamePill.textContent = 'MENU';
     modePill.textContent = 'READY';
     hudL.textContent = 'SCORE 000';
     hudR.textContent = 'BEST 000';
-    msgEl.textContent = 'Tocca una cartuccia. START = play/pause in-game. SEL = menu.';
+    msgEl.textContent = text || 'Tocca una cartuccia. SEL = menu.';
     game = null;
-    gameId = null;
     drawMenuScreen();
   }
 
   async function loadGame(id){
-    if (!registry[id]) return;
+    const path = GAME_PATH[id];
+    if (!path) return;
+
     launcher.classList.add('hidden');
     gamePill.textContent = id.toUpperCase();
     modePill.textContent = 'LOADING';
     msgEl.textContent = 'Loading cartridge…';
 
-    const mod = await registry[id]();
-    game = mod.createGame({ canvas, ctx, hudL, hudR, msgEl });
-    gameId = id;
-
-    game?.reset?.();
-    modePill.textContent = 'READY';
+    try {
+      const mod = await import(`${path}?v=${encodeURIComponent(APP_VER)}`);
+      if (!mod || typeof mod.createGame !== 'function') {
+        throw new Error(`Modulo non valido: manca createGame() in ${path}`);
+      }
+      game = mod.createGame({ canvas, ctx, hudL, hudR, msgEl });
+      game?.reset?.();
+      modePill.textContent = 'READY';
+      msgEl.textContent = 'START = play/pause • B = reset • SEL = menu';
+    } catch (err) {
+      console.error('Cartridge load error:', err);
+      modePill.textContent = 'ERROR';
+      msgEl.textContent = 'ERRORE: cartuccia non caricata. Controlla i file in /games/ e ricarica.';
+      setTimeout(() => showMenu('Cartuccia non caricata. Verifica i file in /games/.'), 900);
+    }
   }
 
   launcher.addEventListener('click', (e)=>{
     const card = e.target.closest('.cart');
     if (!card) return;
     const id = card.dataset.game;
-    if (id === 'soon'){
-      msgEl.textContent = 'Prossimamente: Breakout, Runner, Tetris-like…';
-      return;
-    }
     loadGame(id);
   });
 
   function globalButtons(){
-    if (input.selPressed){
-      showMenu();
-    }
+    if (input.selPressed) showMenu();
     if (input.bPressed){
       if (game?.back) game.back();
       else showMenu();
     }
   }
 
-  // Main loop: fixed timestep 60fps
+  // Main loop fixed 60fps
   let last = performance.now();
   let acc = 0;
   const FIXED = 1000/60;
@@ -436,11 +443,11 @@
 
     while (acc >= FIXED){
       globalButtons();
-      if (game?.update) game.update(FIXED/1000, input);
+      game?.update?.(FIXED/1000, input);
       clearPressed();
       acc -= FIXED;
     }
-    if (game?.render) game.render();
+    game?.render?.();
   }
 
   showMenu();
