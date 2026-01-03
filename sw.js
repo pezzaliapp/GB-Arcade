@@ -1,4 +1,4 @@
-const CACHE = 'gb-arcade-v5';
+const CACHE = 'gb-arcade-v6';
 
 const ASSETS = [
   './',
@@ -27,11 +27,9 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
-// HTML network-first, assets cache-first
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
-
   if (url.origin !== location.origin) return;
 
   const accept = req.headers.get('accept') || '';
