@@ -6,6 +6,6 @@
   "background_color": "#0a120d",
   "theme_color": "#0e1a12",
   "orientation": "portrait",
-  "description": "Mini arcade PWA stile Game Boy con cartucce caricabili (Invaders, Snake, Galattica).",
+  "description": "Mini arcade PWA stile Game Boy con cartucce caricabili (Invaders, Snake, Galattica, Breakout, Runner, Tetris-like).",
   "categories": ["games", "entertainment"]
 }
