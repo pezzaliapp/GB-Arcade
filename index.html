@@ -15,7 +15,7 @@
 
     gtag('js', new Date());
 
-    // Important per PWA / “single page” con giochi
+    // PWA / “single page”
     gtag('config', 'G-N48D6N3BXF', {
       send_page_view: false,
       anonymize_ip: true
@@ -34,6 +34,15 @@
         page_path: location.pathname
       });
     });
+  </script>
+
+  <!-- Microsoft Clarity – GB-Arcade -->
+  <script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "uvum6lp6ac");
   </script>
 
   <style>
@@ -62,11 +71,9 @@
         calc(16px + env(safe-area-inset-bottom))
         calc(16px + env(safe-area-inset-left));
 
-      /* iOS/Android: evita bounce/scroll che ruba i controlli */
       overscroll-behavior: none;
       -webkit-overflow-scrolling: touch;
 
-      /* importante: non permettere gesture “pan” sul body */
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
       user-select:none;
@@ -127,8 +134,6 @@
       image-rendering: pixelated;
       border-radius: 8px;
       background: rgba(0,0,0,.08);
-
-      /* IMPORTANT: evita scroll/zoom su canvas in iOS */
       touch-action: none;
     }
 
@@ -150,7 +155,6 @@
       white-space: normal;
     }
 
-    /* mobile SEL/START bar */
     .mobilebar{display:none; gap:10px; margin-top:10px;}
     .mkey{
       flex:1; padding:10px 12px; border-radius: 12px;
@@ -172,8 +176,6 @@
       position: relative;
       filter: drop-shadow(0 8px 12px rgba(0,0,0,.18));
       -webkit-user-select:none; user-select:none;
-
-      /* IMPORTANT: impedisce gesture/bounce */
       touch-action: none;
     }
     .dpad button{
@@ -184,8 +186,6 @@
       box-shadow: inset 0 2px 0 rgba(255,255,255,.18), 0 8px 16px rgba(0,0,0,.22);
       -webkit-tap-highlight-color: transparent;
       cursor:pointer;
-
-      /* IMPORTANT: evita scroll/zoom/drag iOS */
       touch-action: none;
     }
     .dpad .up{ left:50%; top:0; transform:translateX(-50%); width:58px; height:58px;}
@@ -244,7 +244,6 @@
     .cart small{display:block; opacity:.8; font-weight:900; margin-top:4px; font-size:11px;}
     .hidden{display:none;}
 
-    /* iPhone mini vertical: keep SEL/START reachable */
     @media (max-height: 760px) and (max-width: 430px){
       .handheld{ padding:12px; border-radius:28px; }
       .screen-bezel{ padding:10px; border-radius:16px; }
@@ -324,7 +323,7 @@
   </div>
 
 <script type="module">
-  const APP_VER = '2026-01-03-arcade-8'; // bump to bust cache
+  const APP_VER = '2026-01-03-arcade-9'; // bump to bust cache
 
   // SW
   if ('serviceWorker' in navigator) {
@@ -356,6 +355,18 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
+  function track(eventName, params){
+    // GA4
+    if (window.gaEvent) window.gaEvent(eventName, params || {});
+    // Clarity
+    if (window.clarity) {
+      try {
+        // Clarity supports (eventName) or ('event', eventName)
+        window.clarity('event', eventName);
+      } catch(e){}
+    }
+  }
+
   function bindPress(elOrId, on){
     const el = (typeof elOrId === 'string') ? document.getElementById(elOrId) : elOrId;
     if (!el) return;
@@ -373,7 +384,7 @@
     el.addEventListener('touchend', (e)=>{ e.preventDefault(); run(); }, {passive:false});
   }
 
-  // --- D-PAD HOLD (press = move, release = stop) -> FIX iPhone drift
+  // D-PAD HOLD (press = move, release = stop)
   function clearDirs(){
     input.up = input.down = input.left = input.right = false;
   }
@@ -394,12 +405,10 @@
   document.querySelectorAll('.dpad button[data-dir]').forEach(btn=>{
     const d = btn.dataset.dir;
 
-    // PRESS
     btn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); pressDir(d); });
     btn.addEventListener('touchstart', (e)=>{ e.preventDefault(); pressDir(d); }, {passive:false});
     btn.addEventListener('mousedown', (e)=>{ e.preventDefault(); pressDir(d); });
 
-    // RELEASE
     const rel = (e)=>{ e.preventDefault(); releaseDir(d); };
     btn.addEventListener('pointerup', rel);
     btn.addEventListener('pointercancel', rel);
@@ -408,35 +417,33 @@
     btn.addEventListener('touchcancel', rel, {passive:false});
     btn.addEventListener('mouseup', rel);
 
-    // prevent "click latch"
     btn.addEventListener('click', (e)=>{ e.preventDefault(); });
   });
 
-  // panic stop on focus loss
   window.addEventListener('blur', clearDirs);
   document.addEventListener('visibilitychange', ()=>{ if (document.hidden) clearDirs(); });
 
-  // A/B/Start/Sel
-  bindPress('btnA', ()=>{ input.aPressed = true; });
-  bindPress('btnB', ()=>{ input.bPressed = true; });
-  bindPress('btnStart', ()=>{ input.startPressed = true; });
-  bindPress('btnSel', ()=>{ input.selPressed = true; });
+  // A/B/Start/Sel (tracked)
+  bindPress('btnA', ()=>{ input.aPressed = true; track('press_a'); });
+  bindPress('btnB', ()=>{ input.bPressed = true; track('press_b'); });
+  bindPress('btnStart', ()=>{ input.startPressed = true; track('press_start'); });
+  bindPress('btnSel', ()=>{ input.selPressed = true; track('press_sel'); });
 
   // mobile duplicates
   bindPress('mStart', ()=> document.getElementById('btnStart').click());
   bindPress('mSel', ()=> document.getElementById('btnSel').click());
 
-  // Keyboard
+  // Keyboard (tracked)
   window.addEventListener('keydown', (e)=>{
     const k = e.key.toLowerCase();
     if (k==='arrowup') input.up=true;
     else if (k==='arrowdown') input.down=true;
     else if (k==='arrowleft') input.left=true;
     else if (k==='arrowright') input.right=true;
-    else if (k==='a' || k===' ') input.aPressed=true;
-    else if (k==='b' || k==='backspace') input.bPressed=true;
-    else if (k==='enter') input.startPressed=true;
-    else if (k==='s') input.selPressed=true;
+    else if (k==='a' || k===' ') { input.aPressed=true; track('press_a', { src:'kbd' }); }
+    else if (k==='b' || k==='backspace') { input.bPressed=true; track('press_b', { src:'kbd' }); }
+    else if (k==='enter') { input.startPressed=true; track('press_start', { src:'kbd' }); }
+    else if (k==='s') { input.selPressed=true; track('press_sel', { src:'kbd' }); }
   }, {passive:true});
 
   window.addEventListener('keyup', (e)=>{
@@ -458,6 +465,7 @@
   };
 
   let game = null;
+  let currentGameId = null;
 
   function drawMenuScreen(){
     ctx.clearRect(0,0,256,256);
@@ -480,17 +488,25 @@
     hudR.textContent = 'BEST 000';
     msgEl.textContent = text || 'Tocca una cartuccia. SEL = menu.';
     game = null;
+    currentGameId = null;
     drawMenuScreen();
+
+    track('menu_open');
   }
 
   async function loadGame(id){
     const path = GAME_PATH[id];
     if (!path) return;
 
+    currentGameId = id;
+
     launcher.classList.add('hidden');
     gamePill.textContent = id.toUpperCase();
     modePill.textContent = 'LOADING';
     msgEl.textContent = 'Loading cartridge…';
+
+    // tracking selezione cartuccia
+    track('cartridge_select', { game: id });
 
     try {
       const mod = await import(`${path}?v=${encodeURIComponent(APP_VER)}`);
@@ -499,12 +515,17 @@
       }
       game = mod.createGame({ canvas, ctx, hudL, hudR, msgEl });
       game?.reset?.();
+
       modePill.textContent = 'READY';
       msgEl.textContent = 'START = play/pause • B reset • SEL menu';
+
+      track('cartridge_loaded', { game: id });
     } catch (err) {
       console.error('Cartridge load error:', err);
       modePill.textContent = 'ERROR';
       msgEl.textContent = 'ERRORE: cartuccia non caricata. Controlla /games/ e ricarica.';
+      track('cartridge_error', { game: id });
+
       setTimeout(() => showMenu('Cartuccia non caricata. Verifica i file in /games/.'), 900);
     }
   }
@@ -516,8 +537,12 @@
   });
 
   function globalButtons(){
-    if (input.selPressed) showMenu();
+    if (input.selPressed) {
+      track('press_sel_menu', { game: currentGameId || 'menu' });
+      showMenu();
+    }
     if (input.bPressed){
+      track('press_b_back', { game: currentGameId || 'menu' });
       if (game?.back) game.back();
       else showMenu();
     }
