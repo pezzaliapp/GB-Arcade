@@ -5,9 +5,7 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
   const ink = () =>
     getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#142016';
 
-  const KEY = {
-    best: 'gb_best_galattica_v2'
-  };
+  const KEY = { best: 'gb_best_galattica_v22' };
 
   // ---------- state ----------
   let paused = true, waitingStart = true, dead = false;
@@ -23,24 +21,26 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
   let shake = 0;             // seconds
 
   // entities
-  let rocks = [];            // main meteors
-  let shards = [];           // small fast debris
-  let seekers = [];          // slow homing drones
+  let rocks = [];            // METEOR (destroyable)
+  let shards = [];           // SHARD (fast, not destroyable)
+  let seekers = [];          // DRONE (destroyable)
   let shots = [];            // bullets (burst)
   let bonus = null;          // {x,y,r,type,vy,ttl}
+  let walls = [];            // WALL (indistruttibile con gap)
 
   // timers
   let rockSpawnT = 0;
   let shardSpawnT = 0;
   let seekerSpawnT = 0;
   let bonusSpawnT = 0;
+  let wallSpawnT = 3.2;
   let shotCD = 0;
 
-  // difficulty (continuously updated)
+  // difficulty
   let density = 0;           // derived from wave
   let speedMul = 1;          // derived from wave
 
-  // for near-miss scoring (per entity)
+  // near-miss scoring
   let nearTag = new WeakSet();
 
   // ---------- utils ----------
@@ -81,22 +81,25 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
     seekers = [];
     shots = [];
     bonus = null;
+    walls = [];
 
     rockSpawnT = 0;
     shardSpawnT = 0;
     seekerSpawnT = 0;
     bonusSpawnT = 1.2;
+    wallSpawnT = 3.2;
     shotCD = 0;
 
     density = 0;
     speedMul = 1;
 
-    setMsg('GALATTICA: D-Pad muovi • A=SHIELD • B=SHOT • START play/pause • SEL menu');
+    nearTag = new WeakSet();
+
+    setMsg('GALATTICA v2.2: METEOR=PIENO (colpisci) • DRONE=BORDO (colpisci) • SHARD=— (schiva) • WALL=passa nel GAP • A=SHIELD • B=SHOT • START play/pause');
     updateHUD();
   }
 
   function back(){
-    // global B triggers game.back(); keep semantics: restart run
     reset();
     waitingStart = false;
     paused = false;
@@ -104,20 +107,16 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
   }
 
   function recalcDifficulty(){
-    // wave grows with score (aggressive)
     const newWave = 1 + Math.floor(score / 80);
     if (newWave !== wave){
       wave = newWave;
       setMsg(`WAVE ${pad2(wave)} — densità in aumento.`);
     }
-
-    // density & speed increase with wave
     density = clamp(0.8 + wave*0.35, 1.0, 6.0);
     speedMul = clamp(1.0 + wave*0.08, 1.0, 1.9);
   }
 
   function spawnRock(){
-    // spawn from top (and sometimes sides)
     const side = Math.random();
     let x,y,vx,vy;
 
@@ -130,13 +129,11 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
       vx = (Math.random()*2-1) * (10 + wave*2);
       vy = baseVy;
     } else if (side < 0.86){
-      // left
       x = -20;
       y = 24 + Math.random()*(H*0.55);
       vx = (55 + Math.random()*60) * speedMul;
       vy = (15 + Math.random()*35) * speedMul;
     } else {
-      // right
       x = W+20;
       y = 24 + Math.random()*(H*0.55);
       vx = -(55 + Math.random()*60) * speedMul;
@@ -147,17 +144,16 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
   }
 
   function spawnShard(){
-    // small fast debris from top
-    const r = 3 + Math.random()*3; // 3..6
+    // shard as dash-like (NOT destroyable)
     const x = 10 + Math.random()*(W-20);
     const y = -10 - Math.random()*40;
-    const vx = (Math.random()*2-1) * (35 + wave*4) * speedMul;
-    const vy = (110 + Math.random()*110) * speedMul;
-    shards.push({ x,y,r, vx, vy });
+    const vx = (Math.random()*2-1) * (55 + wave*6) * speedMul;
+    const vy = (150 + Math.random()*140) * speedMul;
+    // store as thin rect for clarity/hitbox
+    shards.push({ x,y, vx, vy, w: 12, h: 2 });
   }
 
   function spawnSeeker(){
-    // slow homing drone from top
     const x = 18 + Math.random()*(W-36);
     const y = -20 - Math.random()*60;
     seekers.push({ x,y,r:6, vx:0, vy:(40+wave*4)*speedMul, hp:2 });
@@ -170,14 +166,27 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
       typeRand < 0.82 ? 'ENERGY' :
       'SLOW';
 
-    // spawn near danger: pick around center but push to edges sometimes
     const x = clamp((W/2) + (Math.random()*2-1) * (80 + wave*4), 18, W-18);
     const y = -14;
     bonus = { x,y,r:7, type, vy:(70+wave*6)*speedMul, ttl: 6.5 };
   }
 
+  function spawnWall(){
+    // wall with gap (indistruttibile)
+    const h = 10;
+    const gapW = clamp(54 - wave*2.2, 26, 54);
+    const gapX = 10 + Math.random()*(W - 20 - gapW);
+    walls.push({
+      y: -h,
+      h,
+      gapX,
+      gapW,
+      vy: (75 + wave*7) * speedMul,
+      scored: false
+    });
+  }
+
   function shootBurst(){
-    // burst = 3 shots upward, costs energy, cooldown
     if (shotCD > 0) return;
     if (energy < 8) return;
 
@@ -188,7 +197,6 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
     shots.push({ x: ship.x-6, y: ship.y-9, vx:-35, vy:-210, r:2 });
     shots.push({ x: ship.x+6, y: ship.y-9, vx: 35, vy:-210, r:2 });
 
-    // micro feedback
     shake = Math.max(shake, 0.08);
   }
 
@@ -202,8 +210,6 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
   function onPlayerHit(kind='HARD'){
     if (iFrames > 0) return;
 
-    // if shield currently up, it absorbs (but costs a lot)
-    // (shield logic happens in update; here we assume collision passed shield check)
     energy = Math.max(0, energy - (kind==='HARD' ? 28 : 16));
     hitFeedback(kind);
 
@@ -251,46 +257,39 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
     const ax = (input.left ? -1 : 0) + (input.right ? 1 : 0);
     const ay = (input.up ? -1 : 0) + (input.down ? 1 : 0);
 
-    const speed = 150; // controllabile su mobile
+    const speed = 150;
     ship.x = clamp(ship.x + ax*speed*dt, 10, W-10);
     ship.y = clamp(ship.y + ay*speed*dt, 22, H-10);
 
-    // shield: A = hold-ish (we only get aPressed pulse, but you can mash A)
-    // To make it feel like hold, we interpret *any* aPressed as activating for short time,
-    // and also allow “buffer” if user is tapping.
+    // shield (more costly)
     const shieldOn = (input.aPressed && energy > 0);
-
-    // shield costs MORE (as requested)
     if (shieldOn){
-      energy = Math.max(0, energy - 42*dt); // heavy drain
-      iFrames = Math.max(iFrames, 0.12);    // short protection window
+      energy = Math.max(0, energy - 42*dt);
+      iFrames = Math.max(iFrames, 0.12);
     } else {
-      // regen slower than before (pressure)
       energy = Math.min(100, energy + 7.5*dt);
     }
 
-    // B = shoot burst (cost + cooldown)
-    if (input.bPressed){
-      shootBurst();
-    }
+    // shoot
+    if (input.bPressed) shootBurst();
 
-    // score over time (faster)
+    // score over time
     score = Math.min(999, score + Math.floor(14*dt));
     recalcDifficulty();
 
-    // spawns (aggressive, constant)
+    // spawns
     rockSpawnT -= dt;
     shardSpawnT -= dt;
     seekerSpawnT -= dt;
     bonusSpawnT -= dt;
+    wallSpawnT -= dt;
 
-    // spawn cadence scales with density
-    const rockEvery = clamp(0.55 - wave*0.02, 0.26, 0.55);
-    const shardEvery = clamp(0.70 - wave*0.02, 0.30, 0.70);
-    const seekerEvery = clamp(3.2 - wave*0.08, 1.4, 3.2);
+    const rockEvery   = clamp(0.55 - wave*0.02, 0.26, 0.55);
+    const shardEvery  = clamp(0.70 - wave*0.02, 0.30, 0.70);
+    const seekerEvery = clamp(3.2  - wave*0.08, 1.4, 3.2);
+    const wallEvery   = clamp(4.2  - wave*0.12, 2.4, 4.2);
 
     if (rockSpawnT <= 0){
-      // sometimes double spawn
       spawnRock();
       if (Math.random() < 0.25 + wave*0.02) spawnRock();
       rockSpawnT = rockEvery / clamp(density/1.6, 1.0, 2.6);
@@ -305,9 +304,12 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
       seekerSpawnT = seekerEvery;
     }
     if (!bonus && bonusSpawnT <= 0){
-      // bonus not too frequent, but consistent
       if (Math.random() < 0.55) spawnBonus();
       bonusSpawnT = clamp(2.8 - wave*0.08, 1.6, 2.8);
+    }
+    if (wallSpawnT <= 0){
+      spawnWall();
+      wallSpawnT = wallEvery;
     }
 
     // update entities
@@ -322,10 +324,9 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
       if (s.x < 4 || s.x > W-4) s.vx *= -1;
     }
     for (const k of seekers){
-      // home gently towards ship
       const dx = ship.x - k.x;
-      k.vx += clamp(dx*0.6, -80, 80) * dt;        // acceleration
-      k.vx *= (1 - 0.8*dt);                       // damping
+      k.vx += clamp(dx*0.6, -80, 80) * dt;
+      k.vx *= (1 - 0.8*dt);
       k.x += k.vx*dt;
       k.y += k.vy*dt;
       k.x = clamp(k.x, 8, W-8);
@@ -333,6 +334,15 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
     for (const b of shots){
       b.x += b.vx*dt;
       b.y += b.vy*dt;
+    }
+    for (const w of walls){
+      w.y += w.vy*dt;
+      // score when you pass it (once)
+      if (!w.scored && w.y > ship.y){
+        w.scored = true;
+        score = Math.min(999, score + 12);
+        setMsg('GAP BONUS +12');
+      }
     }
 
     // bonus
@@ -343,24 +353,25 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
     }
 
     // cull
-    rocks = rocks.filter(o => o.y < H+60 && o.y > -80 && o.x > -80 && o.x < W+80);
+    rocks  = rocks.filter(o => o.y < H+60 && o.y > -80 && o.x > -80 && o.x < W+80);
     shards = shards.filter(o => o.y < H+60 && o.y > -80);
-    seekers = seekers.filter(o => o.y < H+60);
-    shots = shots.filter(o => o.y > -20 && o.x > -20 && o.x < W+20);
+    seekers= seekers.filter(o => o.y < H+60);
+    shots  = shots.filter(o => o.y > -20 && o.x > -20 && o.x < W+20);
+    walls  = walls.filter(o => o.y < H+60);
 
-    // collisions: shots -> rocks/seekers
+    // collisions: shots -> rocks/seekers (NOT shards, NOT walls)
     for (const sh of shots){
       for (const r of rocks){
         const rr = (sh.r + r.r);
         if (dist2(sh.x, sh.y, r.x, r.y) < rr*rr){
           r.hp -= 1;
-          sh.y = -9999; // remove
+          sh.y = -9999;
           if (r.hp <= 0){
             score = Math.min(999, score + 6);
-            // split into shards sometimes
             if (r.r > 12 && Math.random() < 0.75){
-              shards.push({ x:r.x, y:r.y, r:4, vx:(Math.random()*2-1)*120, vy:140*speedMul });
-              shards.push({ x:r.x, y:r.y, r:4, vx:(Math.random()*2-1)*120, vy:140*speedMul });
+              // debris as dash
+              shards.push({ x:r.x, y:r.y, w:12, h:2, vx:(Math.random()*2-1)*180, vy:180*speedMul });
+              shards.push({ x:r.x, y:r.y, w:12, h:2, vx:(Math.random()*2-1)*180, vy:180*speedMul });
             }
             r.y = 9999;
           }
@@ -381,22 +392,15 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
       }
     }
 
-    // collisions: player with hazards
-    // near-miss bonus: within margin but not hit -> points once per entity
+    // collisions: player with hazards + near-miss
     const nearMargin = 6;
 
     for (const r of rocks){
       const rr = ship.r + r.r;
       const d2 = dist2(ship.x, ship.y, r.x, r.y);
       if (d2 < rr*rr){
-        // shield window?
-        if (iFrames > 0){
-          // absorb but still penalize
-          onPlayerHit('SCRAPE');
-        } else {
-          onPlayerHit('HARD');
-        }
-        // bounce it away a bit
+        if (iFrames > 0) onPlayerHit('SCRAPE');
+        else onPlayerHit('HARD');
         r.y -= 22;
       } else {
         const nearR = rr + nearMargin;
@@ -407,15 +411,20 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
       }
     }
 
+    // shards as RECT hit (dash)
     for (const s of shards){
-      const rr = ship.r + s.r;
-      const d2 = dist2(ship.x, ship.y, s.x, s.y);
-      if (d2 < rr*rr){
+      const sx = s.x - (s.w/2);
+      const sy = s.y - (s.h/2);
+      const hit = (ship.x > sx-ship.r && ship.x < sx+s.w+ship.r &&
+                   ship.y > sy-ship.r && ship.y < sy+s.h+ship.r);
+      if (hit){
         if (iFrames > 0) onPlayerHit('SCRAPE');
         else onPlayerHit('HARD');
         s.y = 9999;
       } else {
-        const nearR = rr + (nearMargin-2);
+        // near-miss: approximate using center dist
+        const d2 = dist2(ship.x, ship.y, s.x, s.y);
+        const nearR = (ship.r + 5) + (nearMargin-2);
         if (d2 < nearR*nearR && !nearTag.has(s)){
           nearTag.add(s);
           score = Math.min(999, score + 1);
@@ -439,6 +448,20 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
       }
     }
 
+    // WALL collision: must be in GAP
+    for (const w of walls){
+      const top = w.y;
+      const bot = w.y + w.h;
+      const inBand = (ship.y + ship.r > top) && (ship.y - ship.r < bot);
+      if (!inBand) continue;
+
+      const inGap = (ship.x > w.gapX + ship.r) && (ship.x < w.gapX + w.gapW - ship.r);
+      if (!inGap){
+        if (iFrames > 0) onPlayerHit('SCRAPE');
+        else onPlayerHit('HARD');
+      }
+    }
+
     // bonus pickup
     if (bonus){
       const rr = ship.r + bonus.r;
@@ -450,10 +473,8 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
           energy = Math.min(100, energy + 55);
           setMsg('BONUS: ENERGY +55');
         } else if (bonus.type === 'SLOW'){
-          // slow time: reduce speedMul briefly by lowering spawn density & velocities
-          // simplest: clear some hazards (panic relief)
           rocks = rocks.slice(0, Math.max(6, rocks.length-5));
-          shards = shards.slice(0, Math.max(8, shards.length-6));
+          shards= shards.slice(0, Math.max(8, shards.length-6));
           setMsg('BONUS: SLOW (respiro)');
         }
         bonus = null;
@@ -470,7 +491,6 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
 
   // ---------- render ----------
   function render(){
-    // camera shake
     let ox = 0, oy = 0;
     if (shake > 0){
       const m = 2;
@@ -488,7 +508,14 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
 
     const c = ink();
 
-    // danger vignette when energy low
+    // watermark
+    ctx.fillStyle = c;
+    ctx.font = '900 10px ui-monospace, Menlo, Monaco, Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('GALATTICA v2.2', W/2, 6);
+
+    // danger vignette
     if (energy < 25 && !dead && !waitingStart){
       ctx.fillStyle = 'rgba(0,0,0,.06)';
       ctx.fillRect(0,0,W,H);
@@ -496,24 +523,42 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
       ctx.fillRect(8,8,W-16,H-16);
     }
 
-    // draw hazards
+    // WALLS (indistruttibili)
+    ctx.fillStyle = c;
+    for (const w of walls){
+      // left block
+      ctx.fillRect(0, w.y, w.gapX, w.h);
+      // right block
+      ctx.fillRect(w.gapX + w.gapW, w.y, W - (w.gapX + w.gapW), w.h);
+      // outline gap (readability)
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(w.gapX, w.y, w.gapW, w.h);
+    }
+
+    // METEORS (solid + craters)
     ctx.fillStyle = c;
     for (const r of rocks){
-      // meteors: chunky
       ctx.fillRect(r.x-r.r, r.y-r.r, r.r*2, r.r*2);
-      if (r.r > 12){
-        ctx.clearRect(r.x-2, r.y-2, 2, 2);
-        ctx.clearRect(r.x+3, r.y-4, 2, 2);
-      }
+      // craters
+      ctx.clearRect(r.x-3, r.y-2, 2, 2);
+      ctx.clearRect(r.x+2, r.y+1, 2, 2);
+      // 2HP notch
+      if (r.hp === 2) ctx.clearRect(r.x-1, r.y-6, 2, 2);
     }
+
+    // SHARDS (dash)
+    ctx.fillStyle = c;
     for (const s of shards){
-      // shards: small thin
-      ctx.fillRect(s.x-s.r, s.y-s.r, s.r*2, s.r*2);
+      const w = s.w ?? (s.r*2);
+      const h = s.h ?? (s.r*2);
+      ctx.fillRect(s.x - w/2, s.y - h/2, w, h);
     }
+
+    // SEEKERS (hollow + eye)
+    ctx.strokeStyle = c;
+    ctx.lineWidth = 2;
     for (const k of seekers){
-      // seekers: hollow box
-      ctx.strokeStyle = c;
-      ctx.lineWidth = 2;
       ctx.strokeRect(k.x-7, k.y-7, 14, 14);
       ctx.fillStyle = c;
       ctx.fillRect(k.x-2, k.y-2, 4, 4);
@@ -542,8 +587,10 @@ export function createGame({ canvas, ctx, hudL, hudR, msgEl }) {
     const invBlink = iFrames > 0 && (((iFrames*14)|0) % 2 === 0);
     ctx.fillStyle = invBlink ? 'rgba(20,32,22,.35)' : c;
     ctx.fillRect(ship.x-7, ship.y-7, 14, 14);
+    // nose pixel
+    ctx.clearRect(ship.x-1, ship.y-7, 2, 2);
 
-    // shield visuals when iFrames active
+    // shield visuals
     if (iFrames > 0 && !dead){
       ctx.strokeStyle = c;
       ctx.lineWidth = 2;
