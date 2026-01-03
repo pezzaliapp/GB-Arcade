@@ -262,7 +262,7 @@
   </div>
 
 <script type="module">
-  const APP_VER = '2026-01-03-arcade-6'; // cambia per forzare bypass cache
+  const APP_VER = '2026-01-03-arcade-7'; // cambia per forzare bypass cache
 
   // SW
   if ('serviceWorker' in navigator) {
@@ -312,17 +312,17 @@
   }
 
   // D-pad latch
+  function setDirOnly(d){
+    input.up = d==='U';
+    input.down = d==='D';
+    input.left = d==='L';
+    input.right = d==='R';
+  }
   document.querySelectorAll('.dpad button[data-dir]').forEach(btn=>{
     const d = btn.dataset.dir;
-    const set = () => {
-      input.up = d==='U';
-      input.down = d==='D';
-      input.left = d==='L';
-      input.right = d==='R';
-    };
-    btn.addEventListener('pointerup', (e)=>{ e.preventDefault(); set(); });
-    btn.addEventListener('click', (e)=>{ e.preventDefault(); set(); });
-    btn.addEventListener('touchend', (e)=>{ e.preventDefault(); set(); }, {passive:false});
+    btn.addEventListener('pointerup', (e)=>{ e.preventDefault(); setDirOnly(d); });
+    btn.addEventListener('click', (e)=>{ e.preventDefault(); setDirOnly(d); });
+    btn.addEventListener('touchend', (e)=>{ e.preventDefault(); setDirOnly(d); }, {passive:false});
   });
 
   bindPress('btnA', ()=>{ input.aPressed = true; });
@@ -406,11 +406,11 @@
       game = mod.createGame({ canvas, ctx, hudL, hudR, msgEl });
       game?.reset?.();
       modePill.textContent = 'READY';
-      msgEl.textContent = 'START = play/pause • B = reset • SEL = menu';
+      msgEl.textContent = 'START = play/pause • B reset • SEL menu';
     } catch (err) {
       console.error('Cartridge load error:', err);
       modePill.textContent = 'ERROR';
-      msgEl.textContent = 'ERRORE: cartuccia non caricata. Controlla i file in /games/ e ricarica.';
+      msgEl.textContent = 'ERRORE: cartuccia non caricata. Controlla /games/ e ricarica.';
       setTimeout(() => showMenu('Cartuccia non caricata. Verifica i file in /games/.'), 900);
     }
   }
@@ -418,8 +418,7 @@
   launcher.addEventListener('click', (e)=>{
     const card = e.target.closest('.cart');
     if (!card) return;
-    const id = card.dataset.game;
-    loadGame(id);
+    loadGame(card.dataset.game);
   });
 
   function globalButtons(){
