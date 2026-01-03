@@ -23,11 +23,14 @@
       font-family: var(--font);
       min-height:100svh;
       display:flex; align-items:center; justify-content:center;
+
       padding:
         calc(16px + env(safe-area-inset-top))
         calc(16px + env(safe-area-inset-right))
         calc(16px + env(safe-area-inset-bottom))
         calc(16px + env(safe-area-inset-left));
+
+      overscroll-behavior: none;
     }
     .wrap{width:min(520px, 100%);}
     .handheld{
@@ -116,7 +119,7 @@
       position: relative;
       filter: drop-shadow(0 8px 12px rgba(0,0,0,.18));
       -webkit-user-select:none; user-select:none;
-      touch-action: manipulation;
+      touch-action: none; /* IMPORTANT: avoid iOS scroll/gesture stealing */
     }
     .dpad button{
       position:absolute; border:0;
@@ -125,7 +128,8 @@
       font-weight: 900; border-radius: 14px;
       box-shadow: inset 0 2px 0 rgba(255,255,255,.18), 0 8px 16px rgba(0,0,0,.22);
       -webkit-tap-highlight-color: transparent;
-      cursor:pointer; touch-action: manipulation;
+      cursor:pointer;
+      touch-action: none; /* IMPORTANT */
     }
     .dpad .up{ left:50%; top:0; transform:translateX(-50%); width:58px; height:58px;}
     .dpad .down{ left:50%; bottom:0; transform:translateX(-50%); width:58px; height:58px;}
@@ -262,7 +266,7 @@
   </div>
 
 <script type="module">
-  const APP_VER = '2026-01-03-arcade-7'; // cambia per forzare bypass cache
+  const APP_VER = '2026-01-03-arcade-8'; // bump to bust cache
 
   // SW
   if ('serviceWorker' in navigator) {
@@ -311,28 +315,60 @@
     el.addEventListener('touchend', (e)=>{ e.preventDefault(); run(); }, {passive:false});
   }
 
-  // D-pad latch
-  function setDirOnly(d){
-    input.up = d==='U';
-    input.down = d==='D';
-    input.left = d==='L';
-    input.right = d==='R';
+  // --- D-PAD HOLD (press = move, release = stop) -> FIX iPhone drift
+  function clearDirs(){
+    input.up = input.down = input.left = input.right = false;
   }
+  function pressDir(d){
+    clearDirs();
+    if (d==='U') input.up = true;
+    if (d==='D') input.down = true;
+    if (d==='L') input.left = true;
+    if (d==='R') input.right = true;
+  }
+  function releaseDir(d){
+    if (d==='U') input.up = false;
+    if (d==='D') input.down = false;
+    if (d==='L') input.left = false;
+    if (d==='R') input.right = false;
+  }
+
   document.querySelectorAll('.dpad button[data-dir]').forEach(btn=>{
     const d = btn.dataset.dir;
-    btn.addEventListener('pointerup', (e)=>{ e.preventDefault(); setDirOnly(d); });
-    btn.addEventListener('click', (e)=>{ e.preventDefault(); setDirOnly(d); });
-    btn.addEventListener('touchend', (e)=>{ e.preventDefault(); setDirOnly(d); }, {passive:false});
+
+    // PRESS
+    btn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); pressDir(d); });
+    btn.addEventListener('touchstart', (e)=>{ e.preventDefault(); pressDir(d); }, {passive:false});
+    btn.addEventListener('mousedown', (e)=>{ e.preventDefault(); pressDir(d); });
+
+    // RELEASE
+    const rel = (e)=>{ e.preventDefault(); releaseDir(d); };
+    btn.addEventListener('pointerup', rel);
+    btn.addEventListener('pointercancel', rel);
+    btn.addEventListener('pointerleave', rel);
+    btn.addEventListener('touchend', rel, {passive:false});
+    btn.addEventListener('touchcancel', rel, {passive:false});
+    btn.addEventListener('mouseup', rel);
+
+    // prevent "click latch"
+    btn.addEventListener('click', (e)=>{ e.preventDefault(); });
   });
 
+  // panic stop on focus loss
+  window.addEventListener('blur', clearDirs);
+  document.addEventListener('visibilitychange', ()=>{ if (document.hidden) clearDirs(); });
+
+  // A/B/Start/Sel
   bindPress('btnA', ()=>{ input.aPressed = true; });
   bindPress('btnB', ()=>{ input.bPressed = true; });
   bindPress('btnStart', ()=>{ input.startPressed = true; });
   bindPress('btnSel', ()=>{ input.selPressed = true; });
 
+  // mobile duplicates
   bindPress('mStart', ()=> document.getElementById('btnStart').click());
   bindPress('mSel', ()=> document.getElementById('btnSel').click());
 
+  // Keyboard
   window.addEventListener('keydown', (e)=>{
     const k = e.key.toLowerCase();
     if (k==='arrowup') input.up=true;
